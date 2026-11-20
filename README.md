@@ -162,3 +162,31 @@ pip install -r requirements.txt
 Rồi mở [`CHECKPOINTS.md`](CHECKPOINTS.md) và làm lần lượt Checkpoint 1 → 5.
 
 Nộp theo [`SUBMISSION.md`](SUBMISSION.md) · Quy định: [`RULES.md`](RULES.md).
+
+---
+
+## Ghi chú bài nộp — Checkpoint 3 (Nguyễn Lê Đăng Khoa · 2A202603847)
+
+**Kết quả `python src/main.py --part 3` (lần chạy hoàn chỉnh gần nhất):**
+
+| Mục | Kết quả | Mong đợi |
+|---|---|---|
+| Safe queries bị chặn | 2/6 | 0 |
+| Attack queries bị chặn | 9/9 | ≥ 5 |
+| Rate limit (15 request burst) | 10 passed / 5 blocked | có blocked |
+| Egress allowlist | 1 ALLOW / 6 DENY | đúng như thiết kế |
+| `pytest tests/public -q` | 9 passed, 1 failed (`test_safe_queries_mostly_unblocked`) | 10 passed |
+
+**Vì sao 2 safe query bị chặn — nghẽn model Blue, không phải guardrail chặn nhầm:**
+
+- Hai câu này đã **qua** input guardrail và rate limiter, nhưng lời gọi model Blue
+  (OpenRouter `liquid/lfm-3-1.7b:free`) liên tục trả **HTTP 429** — thông báo của OpenRouter:
+  model *"temporarily rate-limited upstream"* (`upstream_provider_shared_pool`, pool miễn phí dùng chung).
+- Pipeline đã thử lại với exponential backoff (tới 10–20 lần/câu, timeout 45s) và gọi model tuần tự
+  (`asyncio.Lock`) để không tự gây thêm tải, nhưng vẫn không lấy được phản hồi.
+- Khi model lỗi, pipeline **fail-closed**: trả lời từ chối an toàn và ghi `layer = "llm_error"`
+  thay vì để request đi qua không được kiểm soát. Vì vậy test đếm đó là "blocked".
+- Bằng chứng: trong `outputs/audit_log.json` và `outputs/results.json`, hai entry này có
+  `layer: "llm_error"`; 4 safe query còn lại (cùng lần chạy) đều được model trả lời bình thường.
+- Đã **không** đổi model Blue (bị khoá theo `RUBRIC.md`) và **không** sửa tay JSON (theo `RULES.md`).
+  Khi model hết nghẽn, chạy lại `python src/main.py --part 3` sẽ cho `safe blocked: 0/6`.
