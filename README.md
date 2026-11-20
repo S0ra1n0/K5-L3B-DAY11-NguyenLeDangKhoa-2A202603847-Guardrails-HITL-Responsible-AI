@@ -1,5 +1,28 @@
 # Day 11 — Controlled Agent Security (2026)
 
+## 👤 Thông tin bài nộp
+
+| | |
+|---|---|
+| **Họ tên** | Nguyễn Lê Đăng Khoa |
+| **MSSV** | 2A202603847 |
+| **Lớp** | K5 · L3B · Day 11 |
+| **Red Team provider** | `gemini` / `gemini-3.5-flash` · bonus chọn **B1** (Red) |
+
+**Cách chạy ngắn** (từ gốc repo, đã kích hoạt `.venv` và điền `.env` theo `.env.example`):
+
+```bash
+python src/main.py --part 3        # Blue pipeline → outputs/results.json, audit_log.json, metrics.json
+python src/main.py --part 4        # Red + Red Advance → outputs/attack_results.json (+ 2 file chi tiết)
+pytest tests/smoke -q && pytest tests/public -q
+python scripts/grade.py --submission-dir . --out outputs/grade_report.json   # sinh lab_report.md
+```
+
+> Ghi chú về kết quả CP3 (model Blue bị nghẽn 429): xem mục
+> [Ghi chú bài nộp — Checkpoint 3](#ghi-chú-bài-nộp--checkpoint-3-nguyễn-lê-đăng-khoa--2a202603847) ở cuối file.
+
+---
+
 > 👤 **Hình thức:** bài tập **cá nhân** (1 người / 1 MSSV).  
 > 🎯 **Mục tiêu:** đóng vai **Blue Team** để học cách xây Guardrails phòng thủ, rồi đóng vai **Red Team** để tấn công agent **Red** hoặc **Red Advance**.  
 > ✅ Làm theo **Checkpoint 1 → 5** trong [`CHECKPOINTS.md`](CHECKPOINTS.md) · nộp theo [`SUBMISSION.md`](SUBMISSION.md).
