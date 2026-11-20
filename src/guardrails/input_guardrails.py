@@ -10,7 +10,9 @@ Status convention (không dùng True/False mơ hồ):
 """
 from __future__ import annotations
 
+from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
 import re
+import unicodedata
 from typing import Literal
 
 from google.genai import types
@@ -41,6 +43,13 @@ InputStatus = Literal["ALLOW", "BLOCK"]
 # summarize an external bank-transfer email just because it is external data.
 # Regex is one signal, not the whole security boundary.
 # ============================================================
+_ZERO_WIDTH_RE = re.compile(r"[\u200b\u200c\u200d\u2060\u00ad\ufeff]")
+
+def _normalize(text: str) -> str:
+    text = unicodedata.normalize("NFKC", text or "")
+    text = _ZERO_WIDTH_RE.sub("", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip().lower()
 
 def detect_injection(user_input: str) -> InputStatus:
     """Detect prompt injection patterns in user input.
@@ -51,14 +60,25 @@ def detect_injection(user_input: str) -> InputStatus:
     Returns:
         ``"BLOCK"`` if injection detected (chặn), ``"ALLOW"`` otherwise (cho qua).
     """
+
+    
+    text = _normalize(user_input)
+
     INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
+        r"\b(ignore|disregard|forget|override|bypass)\b.{0,20}"
+        r"\b(instructions?|rules?|guidelines?|prompts?)\b",
+        r"\byou are now (a |an |in |the )?(dan|unrestricted|jailbroken|developer|admin|root|evil)\b",
+        r"\b(dan|developer mode|jailbreak|do anything now)\b",
+        r"\bsystem ?prompts?\b",
+        r"\b(reveal|show|print|repeat) (me )?(your |the )?(instructions|prompt|internal|hidden)",
+        r"\bpretend (you are|you're|to be)\b",
+        r"\bact as (a |an )?(unrestricted|unfiltered|uncensored|jailbroken)",
+        r"(bỏ qua|phớt lờ|quên)\s.{0,20}(hướng dẫn|chỉ dẫn|quy tắc|lệnh)",
+        r"(tiết lộ|cho (tôi|xem)).{0,20}(mật khẩu|system prompt|api key)",
     ]
 
     for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
+        if re.search(pattern, text):
             return "BLOCK"
     return "ALLOW"
 
@@ -85,13 +105,24 @@ def topic_filter(user_input: str) -> InputStatus:
         ``"ALLOW"`` = cho qua (câu banking hợp lệ).
     """
     input_lower = user_input.lower()
-
-    # TODO: Implement logic:
-    # 1. If input contains any blocked topic -> return "BLOCK"
-    # 2. If input doesn't contain any allowed topic -> return "BLOCK"
-    # 3. Otherwise -> return "ALLOW"
-
-    pass  # Replace with your implementation
+    BLOCKED_TOPICS1 = [
+        "hack", "bomb", "explosive", "illegal", "drugs", "weapons",
+        "porn", "adult", "gambling", "violence", "terrorism",
+        "politics", "religion", "hate speech", "discrimination",
+        "self-harm", "suicide", "malware", "phishing", "scam",
+        "crime", "cheating", "spam", "revolution", "murder"
+    ]
+    ALLOW_TOPICS1 = [
+        "banking", "account", "transaction", "loan", "interest rate", "savings", "credit card"
+    ]
+    
+    for blocked_topic in BLOCKED_TOPICS:
+        if blocked_topic in input_lower:
+            return "BLOCK"
+    for allowed_topic in ALLOWED_TOPICS:
+        if allowed_topic in input_lower:
+            return "ALLOW"
+    return "BLOCK"  # Placeholder, replace with your implementation
 
 
 # ============================================================
@@ -150,7 +181,12 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         # 2. Call topic_filter(text)
         #    - If "BLOCK": increment blocked_count, return self._block_response("...")
         # 3. If both return "ALLOW": return None (let message through)
-
+        injection_result = detect_injection(text)
+        topic_result = topic_filter(text)
+        if injection_result == "BLOCK" or topic_result == "BLOCK":
+            self.blocked_count += 1
+            return self._block_response("Your message was blocked due to policy restrictions.")
+        return None  # Let the message through if both checks pass
         pass  # Replace with your implementation
 
 

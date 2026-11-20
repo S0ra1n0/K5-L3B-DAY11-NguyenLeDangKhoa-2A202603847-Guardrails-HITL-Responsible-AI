@@ -7,13 +7,14 @@ Checkpoint 2 — Output Guardrails
 import re
 import textwrap
 
+
 from google.genai import types
 from google.adk.agents import llm_agent
 from google.adk import runners
 from google.adk.plugins import base_plugin
 
 from core.utils import chat_with_agent
-
+from core.config import DEMO_SECRETS
 
 # ============================================================
 # Implement content_filter()
@@ -41,20 +42,19 @@ def content_filter(response: str) -> dict:
 
     # PII patterns to check
     PII_PATTERNS = {
-        # TODO: Add regex patterns for:
-        # - VN phone number: r"0\d{9,10}"
-        # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
-        # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
-        # - API key pattern: r"sk-[a-zA-Z0-9-]+"
-        # - Password pattern: r"password\s*[:=]\s*\S+"
+        "API_KEY": r"\bsk-[a-z0-9_-]{6,}",
+        "PASSWORD": r"\b(?:password|passwd|pwd|mật khẩu|mat khau)\s*(?:is|là|la|:|=)\s*\S+",
+        "DB_HOST": r"\b[\w-]+(?:\.[\w-]+)*\.internal(?::\d+)?\b|\b[\w-]+(?:\.[\w-]+)+:\d{2,5}\b",
+        "PROTECTED_SECRET": "|".join(re.escape(s) for s in DEMO_SECRETS),
+        "EMAIL": r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}",
+        "NATIONAL_ID": r"(?<!\d)(?:\d{12}|\d{9})(?!\d)",
+        "VN_PHONE": r"(?<!\d)(?:\+84|0)(?:[\s.-]?\d){8,10}(?!\d)",
     }
 
     for name, pattern in PII_PATTERNS.items():
-        matches = re.findall(pattern, response, re.IGNORECASE)
-        if matches:
-            issues.append(f"{name}: {len(matches)} found")
-            redacted = re.sub(pattern, "[REDACTED]", redacted, flags=re.IGNORECASE)
-
+        redacted, n = re.subn(pattern, "[REDACTED]", redacted, flags=re.IGNORECASE)
+        if n:
+            issues.append(f"{name}: {n} found")
     return {
         "safe": len(issues) == 0,
         "issues": issues,
@@ -97,7 +97,14 @@ If UNSAFE, add a brief reason on the next line.
 #     instruction=SAFETY_JUDGE_INSTRUCTION,
 # )
 
-safety_judge_agent = None  # TODO: Replace with implementation
+safety_judge_agent = None
+
+#llm_agent.LlmAgent(
+#    model="liquid/lfm-3-1.7b:free",
+#    name="safety_judge",
+#    instruction=SAFETY_JUDGE_INSTRUCTION,
+#)
+
 judge_runner = None
 
 
@@ -139,6 +146,16 @@ async def llm_safety_check(response_text: str) -> dict:
 #   - llm_response has a .content attribute (types.Content)
 #   - Return the (possibly modified) llm_response, or None to keep original
 # ============================================================
+SECRET_ISSUES = ("API_KEY", "PASSWORD", "DB_HOST", "PROTECTED_SECRET")
+BLOCK_MESSAGE = (
+    "Xin lỗi, tôi không thể chia sẻ thông tin nội bộ. "
+    "Tôi có thể giúp bạn về tài khoản, giao dịch, lãi suất hoặc thẻ."
+)
+
+def _has_obfuscated_secret(text: str) -> bool:
+    """Bắt secret bị chèn ký tự: 'a-d-m-i-n-1-2-3', 'd b . vinbank . internal'."""
+    squashed = re.sub(r"[^a-z0-9]", "", text.lower())
+    return any(re.sub(r"[^a-z0-9]", "", s.lower()) in squashed for s in DEMO_SECRETS)
 
 class OutputGuardrailPlugin(base_plugin.BasePlugin):
     """Plugin that checks agent output before sending to user."""
@@ -167,21 +184,32 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
     ):
         """Check LLM response before sending to user."""
         self.total_count += 1
-
         response_text = self._extract_text(llm_response)
         if not response_text:
             return llm_response
+        result = content_filter(response_text)
+        leaked_secret = any(i.startswith(SECRET_ISSUES) for i in result["issues"])
 
-        # TODO: Implement logic:
-        # 1. Call content_filter(response_text)
-        #    - If issues found: replace llm_response.content with redacted version
-        #    - Increment self.redacted_count
-        # 2. If use_llm_judge: call llm_safety_check(response_text)
-        #    - If unsafe: replace llm_response.content with a safe message
-        #    - Increment self.blocked_count
-        # 3. Return llm_response (possibly modified)
+        new_text = None
+        if leaked_secret or _has_obfuscated_secret(response_text):
+            self.blocked_count += 1
+            new_text = BLOCK_MESSAGE
+        elif not result["safe"]:
+            self.redacted_count += 1
+            new_text = result["redacted"]
 
-        return llm_response  # TODO: modify if needed
+        if self.use_llm_judge and new_text is None:
+            verdict = await llm_safety_check(response_text)
+            if not verdict["safe"]:
+                self.blocked_count += 1
+                new_text = BLOCK_MESSAGE
+
+        if new_text is not None:
+            llm_response.content = types.Content(
+                role="model",
+                parts=[types.Part.from_text(text=new_text)],
+            )
+        return llm_response
 
 
 # ============================================================
