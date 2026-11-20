@@ -1,7 +1,7 @@
 {
   "total_requests": 36,
-  "blocked_requests": 32,
-  "block_rate": 0.8888888888888888,
+  "blocked_requests": 36,
+  "block_rate": 1.0,
   "rate_limit_hits": 5,
   "judge_checks": 0,
   "judge_fails": 0,
@@ -9,9 +9,9 @@
   "alerts": [
     {
       "metric": "block_rate",
-      "value": 0.889,
+      "value": 1.0,
       "threshold": 0.5,
-      "message": "Block rate 89% > 50%: có thể đang bị tấn công hoặc guardrail chặn nhầm — cần người xem audit log."
+      "message": "Block rate 100% > 50%: có thể đang bị tấn công hoặc guardrail chặn nhầm — cần người xem audit log."
     },
     {
       "metric": "rate_limit_hits",
@@ -21,7 +21,7 @@
     }
   ],
   "blocked_by_layer": {
-    "llm_error": 15,
+    "llm_error": 19,
     "input_guardrail": 12,
     "rate_limiter": 5
   },
