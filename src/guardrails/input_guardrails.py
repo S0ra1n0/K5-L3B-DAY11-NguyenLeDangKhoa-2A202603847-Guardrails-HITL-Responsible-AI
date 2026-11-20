@@ -10,7 +10,6 @@ Status convention (không dùng True/False mơ hồ):
 """
 from __future__ import annotations
 
-from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
 import re
 import unicodedata
 from typing import Literal
@@ -94,6 +93,26 @@ def detect_injection(user_input: str) -> InputStatus:
 # Return ``"ALLOW"`` if banking-related and OK.
 # ============================================================
 
+def _fold(text: str) -> str:
+    """Chuẩn hoá để so khớp topic: bỏ ký tự ẩn, bỏ dấu tiếng Việt, đ→d, lower.
+
+    ALLOWED_TOPICS trong config viết không dấu ("lai suat", "tai khoan") nên
+    câu hỏi có dấu phải được bỏ dấu trước, nếu không sẽ bị chặn nhầm.
+    """
+    text = _normalize(text).replace("đ", "d")
+    text = unicodedata.normalize("NFD", text)
+    return "".join(c for c in text if unicodedata.category(c) != "Mn")
+
+
+# Bổ sung cục bộ (không sửa core/config.py vì Red/Red Advance dùng chung).
+# Tránh từ quá ngắn/phổ biến (vd "the" trùng mạo từ tiếng Anh).
+EXTRA_ALLOWED_TOPICS = (
+    "chuyen khoan", "the ngan hang", "the atm", "mo the", "phi thuong nien",
+    "hoa don", "chi nhanh", "ma pin", "internet banking", "mobile banking",
+    "card", "bill", "branch", "fee", "mortgage", "statement",
+)
+
+
 def topic_filter(user_input: str) -> InputStatus:
     """Decide whether the input is on-topic for VinBank.
 
@@ -104,25 +123,19 @@ def topic_filter(user_input: str) -> InputStatus:
         ``"BLOCK"`` = chặn (off-topic hoặc topic cấm).
         ``"ALLOW"`` = cho qua (câu banking hợp lệ).
     """
-    input_lower = user_input.lower()
-    BLOCKED_TOPICS1 = [
-        "hack", "bomb", "explosive", "illegal", "drugs", "weapons",
-        "porn", "adult", "gambling", "violence", "terrorism",
-        "politics", "religion", "hate speech", "discrimination",
-        "self-harm", "suicide", "malware", "phishing", "scam",
-        "crime", "cheating", "spam", "revolution", "murder"
-    ]
-    ALLOW_TOPICS1 = [
-        "banking", "account", "transaction", "loan", "interest rate", "savings", "credit card"
-    ]
-    
+    text = _fold(user_input)
+
+    # Topic cấm: khớp ở ĐẦU từ (\b) → "skill" không dính "kill",
+    # nhưng "drugs" / "hacking" vẫn dính "drug" / "hack".
     for blocked_topic in BLOCKED_TOPICS:
-        if blocked_topic in input_lower:
+        if re.search(r"\b" + re.escape(_fold(blocked_topic)), text):
             return "BLOCK"
-    for allowed_topic in ALLOWED_TOPICS:
-        if allowed_topic in input_lower:
+    # Topic cho phép: khớp NGUYÊN từ (+ đuôi số nhiều/chia động từ) →
+    # "fee" không dính "feel", "bill" không dính "billion".
+    for allowed_topic in (*ALLOWED_TOPICS, *EXTRA_ALLOWED_TOPICS):
+        if re.search(r"\b" + re.escape(_fold(allowed_topic)) + r"(s|es|ed|ing)?\b", text):
             return "ALLOW"
-    return "BLOCK"  # Placeholder, replace with your implementation
+    return "BLOCK"  # không dính topic banking nào → lạc đề
 
 
 # ============================================================
@@ -187,7 +200,6 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
             self.blocked_count += 1
             return self._block_response("Your message was blocked due to policy restrictions.")
         return None  # Let the message through if both checks pass
-        pass  # Replace with your implementation
 
 
 # ============================================================
